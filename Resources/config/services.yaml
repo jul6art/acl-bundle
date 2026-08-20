@@ -4,3 +4,51 @@ services:
     # Anything conditional — a brick that needs an optional package, or a service the
     # application may not have — is registered from the extension or removed by a compiler
     # pass instead. Cf. DependencyInjection/AclExtension.php.
+
+    _defaults:
+        autowire: true
+        autoconfigure: true
+
+    # ── Le socle, sans dépendance optionnelle ────────────────────────────────
+    Jul6Art\AclBundle\Security\PermissionCodeParser: ~
+    Jul6Art\AclBundle\Security\PermissionContextAccessor: ~
+
+    Jul6Art\AclBundle\Security\TenantResolver:
+        arguments:
+            $tenantHeader: 'X-TENANT'
+            $tenantAttribute: '_tenant'
+            $routeParameters: []
+
+    Jul6Art\AclBundle\Security\PermissionRouteMap:
+        arguments:
+            $routePermissions: []
+
+    Jul6Art\AclBundle\Security\PermissionContextResolver: ~
+
+    # Les deux listeners sont tagués depuis l'extension, qui seule connaît la priorité
+    # configurée. Sans tag ils ne sont jamais appelés — c'est voulu : un `#[AsEventListener]`
+    # sur une classe de vendor n'est honoré que si le projet autoconfigure `vendor/`.
+    Jul6Art\AclBundle\Security\PermissionContextListener: ~
+
+    # ── Dépend du stockage de permissions fourni par le projet ──────────────
+    # `$permissions` est retiré par PermissionSetProviderPass quand le projet n'a enregistré
+    # aucun PermissionSetProviderInterface : le moteur tourne alors sans stockage, et seul un
+    # super-admin ou un administrateur de tenant passe.
+    Jul6Art\AclBundle\Security\AclPermissionReadService: ~
+
+    Jul6Art\AclBundle\Security\PermissionDecisionService:
+        arguments:
+            $tenantAdminRole: 'ROLE_ORGANIZATION_ADMIN'
+            $permissions: '@Jul6Art\AclBundle\Security\AclPermissionReadService'
+
+    Jul6Art\AclBundle\Security\PermissionVoter:
+        tags: ['security.voter']
+
+    # ── Dépend d'un PermissionStoreInterface : retiré s'il n'y en a pas ─────
+    Jul6Art\AclBundle\Security\PermissionDelegationService:
+        arguments:
+            $tenantAdminRole: 'ROLE_ORGANIZATION_ADMIN'
+            $superAdminRole: 'ROLE_SUPER_ADMIN'
+
+    # ── Dépend d'un FeatureCheckerInterface : retiré s'il n'y en a pas ──────
+    Jul6Art\AclBundle\Security\FeatureAccessListener: ~

@@ -8,6 +8,7 @@ use Jul6Art\AclBundle\DependencyInjection\Configuration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\Config\Definition\Exception\InvalidTypeException;
 use Symfony\Component\Config\Definition\Processor;
 
@@ -26,12 +27,45 @@ final class ConfigurationTest extends TestCase
 
     public function testItAppliesItsDefaults(): void
     {
-        self::assertSame(['enabled' => true], $this->process([]));
+        self::assertSame([
+            'enabled' => true,
+            'super_admin_role' => 'ROLE_SUPER_ADMIN',
+            'tenant_admin_role' => 'ROLE_ORGANIZATION_ADMIN',
+            'tenant_header' => 'X-TENANT',
+            'tenant_request_attribute' => '_tenant',
+            'tenant_route_parameters' => ['organization', 'organizationSlug', 'domain'],
+            'route_permissions' => [],
+            'context_listener_priority' => -10,
+        ], $this->process([]));
     }
 
     public function testLaterConfigsOverrideEarlierOnes(): void
     {
-        self::assertSame(['enabled' => true], $this->process([['enabled' => false], ['enabled' => true]]));
+        self::assertTrue($this->process([['enabled' => false], ['enabled' => true]])['enabled']);
+    }
+
+    /**
+     * Les deux noms de rôles sont du contrat : un projet dont le rôle suprême s'appelle autrement
+     * doit pouvoir le dire, et le bundle ne suppose jamais `ROLE_SUPER_ADMIN`.
+     */
+    public function testTheRoleNamesCanBeReplaced(): void
+    {
+        $config = $this->process([['super_admin_role' => 'ROLE_ROOT', 'tenant_admin_role' => 'ROLE_WORKSPACE_OWNER']]);
+
+        self::assertSame('ROLE_ROOT', $config['super_admin_role']);
+        self::assertSame('ROLE_WORKSPACE_OWNER', $config['tenant_admin_role']);
+    }
+
+    /**
+     * ⚠️ Un nom de rôle vide serait accordé à tout le monde : `in_array('', $roles)` est faux, mais
+     * une chaîne vide dans une configuration signale une variable d'environnement non résolue, et
+     * le bundle doit refuser de démarrer plutôt que de tourner avec un rôle qui n'existe pas.
+     */
+    public function testAnEmptyRoleNameIsRefused(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+
+        $this->process([['super_admin_role' => '']]);
     }
 
     /**

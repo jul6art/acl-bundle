@@ -13,9 +13,14 @@
     ],
     "require": {
         "php": "^8.5",
+        "psr/event-dispatcher": "^1.0",
         "symfony/config": "^7.4 || ^8.0",
         "symfony/dependency-injection": "^7.4 || ^8.0",
+        "symfony/event-dispatcher": "^7.4 || ^8.0",
+        "symfony/http-foundation": "^7.4 || ^8.0",
         "symfony/http-kernel": "^7.4 || ^8.0",
+        "symfony/security-bundle": "^7.4 || ^8.0",
+        "symfony/security-core": "^7.4 || ^8.0",
         "symfony/yaml": "^7.4 || ^8.0"
     },
     "require-dev": {
@@ -32,7 +37,6 @@
         "symfony/flex": "^2.4",
         "symfony/framework-bundle": "^7.4 || ^8.0",
         "symfony/phpunit-bridge": "^7.4 || ^8.0",
-        "symfony/security-bundle": "^8.1",
         "symfony/var-dumper": "^7.4 || ^8.0"
     },
     "autoload": {
@@ -72,6 +76,10 @@
             "@rector-check",
             "@phpstan",
             "@test"
-        ]
+        ],
+        "auto-scripts": {
+            "cache:clear": "symfony-cmd",
+            "assets:install %PUBLIC_DIR%": "symfony-cmd"
+        }
     }
 }

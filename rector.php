@@ -11,6 +11,10 @@ return RectorConfig::configure()
     ->withPaths([
         __DIR__.'/AclBundle.php',
         __DIR__.'/DependencyInjection',
+        __DIR__.'/Attribute',
+        __DIR__.'/Contract',
+        __DIR__.'/Event',
+        __DIR__.'/Security',
         __DIR__.'/Tests',
     ])
     // No argument: the target PHP version is read from the "php" constraint in

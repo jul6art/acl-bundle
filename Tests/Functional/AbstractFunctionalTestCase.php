@@ -31,18 +31,22 @@ abstract class AbstractFunctionalTestCase extends TestCase
      * container — a stale one silently invalidates the assertions, and it is the single most
      * confusing failure mode of a bundle test suite.
      *
-     * @param array<string, mixed> $bundleConfig
+     * @param array<string, mixed>              $bundleConfig
+     * @param array<class-string, class-string> $contracts    interface → implementation, as an
+     *                                                        application would register them
      */
     final protected function boot(
         string $environment = 'test',
         array $bundleConfig = [],
         bool $withOrm = false,
         bool $withSecurity = false,
+        array $contracts = [],
     ): ContainerInterface {
         $uniqueId = substr(md5(serialize([
             $bundleConfig,
             $withOrm,
             $withSecurity,
+            $contracts,
         ])), 0, 12);
 
         // Arguments nommés : une brique absente retire son paramètre du kernel, et un appel
@@ -52,6 +56,7 @@ abstract class AbstractFunctionalTestCase extends TestCase
             $bundleConfig,
             withOrm: $withOrm,
             withSecurity: $withSecurity,
+            contracts: $contracts,
             uniqueId: $uniqueId,
         );
         $this->kernel->boot();

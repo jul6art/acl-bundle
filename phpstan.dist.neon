@@ -6,6 +6,10 @@ parameters:
     paths:
         - AclBundle.php
         - DependencyInjection
+        - Attribute
+        - Contract
+        - Event
+        - Security
         - Tests
         - rector.php
     treatPhpDocTypesAsCertain: false

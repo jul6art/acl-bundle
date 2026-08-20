@@ -6,6 +6,16 @@ namespace Jul6Art\AclBundle\Tests\Fixtures;
 
 use Doctrine\Bundle\DoctrineBundle\DoctrineBundle;
 use Jul6Art\AclBundle\AclBundle;
+use Jul6Art\AclBundle\Security\AclPermissionReadService;
+use Jul6Art\AclBundle\Security\FeatureAccessListener;
+use Jul6Art\AclBundle\Security\PermissionCodeParser;
+use Jul6Art\AclBundle\Security\PermissionContextAccessor;
+use Jul6Art\AclBundle\Security\PermissionContextResolver;
+use Jul6Art\AclBundle\Security\PermissionDecisionService;
+use Jul6Art\AclBundle\Security\PermissionDelegationService;
+use Jul6Art\AclBundle\Security\PermissionRouteMap;
+use Jul6Art\AclBundle\Security\PermissionVoter;
+use Jul6Art\AclBundle\Security\TenantResolver;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\SecurityBundle\SecurityBundle;
 use Symfony\Component\Config\Loader\LoaderInterface;
@@ -29,20 +39,24 @@ use Symfony\Component\HttpKernel\Kernel;
 final class TestKernel extends Kernel
 {
     /**
-     * @param array<string, mixed> $bundleConfig configuration for the "acl" extension
-     * @param bool                 $withOrm      registers DoctrineBundle on in-memory SQLite,
-     *                                           mapped on Tests/Fixtures/Entity
-     * @param bool                 $withSecurity registers SecurityBundle with a stateless
-     *                                           firewall — needed by anything resolving an actor
-     * @param string               $uniqueId     keys the build directory, so two scenarios never
-     *                                           share a compiled container while identical ones
-     *                                           still reuse the cache
+     * @param array<string, mixed>              $bundleConfig configuration for the "acl" extension
+     * @param array<class-string, class-string> $contracts    interface → implementation the
+     *                                                        application registers, aliased just
+     *                                                        as a real project would
+     * @param bool                              $withOrm      registers DoctrineBundle on in-memory SQLite,
+     *                                                        mapped on Tests/Fixtures/Entity
+     * @param bool                              $withSecurity registers SecurityBundle with a stateless
+     *                                                        firewall — needed by anything resolving an actor
+     * @param string                            $uniqueId     keys the build directory, so two scenarios never
+     *                                                        share a compiled container while identical ones
+     *                                                        still reuse the cache
      */
     public function __construct(
         string $environment,
         private readonly array $bundleConfig = [],
         private readonly bool $withOrm = false,
         private readonly bool $withSecurity = false,
+        private readonly array $contracts = [],
         private readonly string $uniqueId = 'default',
     ) {
         // Debug mode installs Symfony's error handler and never removes it, which PHPUnit
@@ -117,7 +131,16 @@ final class TestKernel extends Kernel
                     'event_dispatcher',
                     'request_stack',
                     'security.token_storage',
-                    // Add the bundle's own services here as the tests need them.
+                    PermissionCodeParser::class,
+                    PermissionContextAccessor::class,
+                    PermissionContextResolver::class,
+                    PermissionDecisionService::class,
+                    PermissionDelegationService::class,
+                    PermissionRouteMap::class,
+                    PermissionVoter::class,
+                    TenantResolver::class,
+                    AclPermissionReadService::class,
+                    FeatureAccessListener::class,
                 ];
 
                 foreach ($container->getDefinitions() as $id => $definition) {
@@ -161,6 +184,14 @@ final class TestKernel extends Kernel
         }
 
         $container->loadFromExtension('acl', $this->bundleConfig);
+
+        // Les implémentations de contrats sont déclarées comme un projet les déclarerait — par
+        // alias sur l'interface. C'est ce que le pass de compilation cherche, et un test qui les
+        // enregistrerait autrement ne prouverait rien du câblage réel.
+        foreach ($this->contracts as $interface => $class) {
+            $container->register($class, $class)->setAutowired(true)->setPublic(true);
+            $container->setAlias($interface, $class)->setPublic(true);
+        }
     }
 
     /**
