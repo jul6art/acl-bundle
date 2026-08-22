@@ -25,6 +25,19 @@ use Jul6Art\AclBundle\Contract\AclUserInterface;
  *    own. That last clause is the difference between an administrator and a cross-tenant reader.
  * 7. **Otherwise refused.** Absence of a rule is a refusal, never a pass.
  *
+ * ## Single-tenant applications
+ *
+ * Rules 3 and 6 both compare a *resolved* tenant against the actor's. In an application that has
+ * no tenants at all, {@see TenantResolver} can only ever answer `null` — there is no request
+ * attribute, no route parameter and no header to read — so rule 3 refuses **every** `/api/`
+ * permission check for anyone who is not a super admin. The symptom is an empty datatable and a
+ * 403 in the console for an administrator who does hold the permission, and nothing in a test
+ * suite points at it.
+ *
+ * `acl.multi_tenant: false` is the answer: rule 3 stops applying and rule 6 grants the tenant
+ * administrator without a tenant comparison it cannot make. It defaults to `true`, so a
+ * multi-tenant application keeps the strict behaviour byte for byte.
+ *
  * ## Not final, on purpose
  *
  * This is the seam a consuming application doubles in its own voter tests: a voter that delegates
@@ -39,10 +52,15 @@ readonly class PermissionDecisionService
      *                                                   1, 2 and 6 can grant, which is a
      *                                                   deliberately narrow fallback rather than an
      *                                                   open door
+     * @param bool                          $multiTenant false in an application that has no
+     *                                                   tenants: rule 3 is dropped and rule 6 stops
+     *                                                   comparing a tenant that can never be
+     *                                                   resolved
      */
     public function __construct(
         private string $tenantAdminRole,
         private ?AclPermissionReadService $permissions = null,
+        private bool $multiTenant = true,
     ) {
     }
 
@@ -63,7 +81,10 @@ readonly class PermissionDecisionService
         // ⚠️ Une requête d'API sans tenant résolu est refusée, et non rabattue sur le tenant de
         // l'appelant. Un repli « implicite » transformerait un en-tête oublié en collection
         // inter-tenants, avec une réponse 200 indiscernable d'une réponse correcte.
-        if ($context instanceof PermissionContext && $context->isApi && null === $context->domain) {
+        //
+        // Sauf en mono-tenant, où il n'y a rien à résoudre : la règle refuserait alors toute
+        // vérification derrière `/api/`, pour tout le monde sauf un super-admin.
+        if ($this->multiTenant && $context instanceof PermissionContext && $context->isApi && null === $context->domain) {
             return false;
         }
 
@@ -79,7 +100,7 @@ readonly class PermissionDecisionService
         }
 
         if (\in_array($this->tenantAdminRole, $user->getRoles(), true)) {
-            if ($context instanceof PermissionContext && $context->isApi && null !== $context->domain) {
+            if ($this->multiTenant && $context instanceof PermissionContext && $context->isApi && null !== $context->domain) {
                 return $context->domain === $user->getTenant()?->getSlug();
             }
 

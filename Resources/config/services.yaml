@@ -40,6 +40,7 @@ services:
         arguments:
             $tenantAdminRole: 'ROLE_ORGANIZATION_ADMIN'
             $permissions: '@Jul6Art\AclBundle\Security\AclPermissionReadService'
+            $multiTenant: true
 
     Jul6Art\AclBundle\Security\PermissionVoter:
         tags: ['security.voter']

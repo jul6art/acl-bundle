@@ -71,7 +71,8 @@ class AclExtension extends Extension
             ->setArgument('$routePermissions', self::stringMap($config['route_permissions'] ?? []));
 
         $container->getDefinition(PermissionDecisionService::class)
-            ->setArgument('$tenantAdminRole', $tenantAdminRole);
+            ->setArgument('$tenantAdminRole', $tenantAdminRole)
+            ->setArgument('$multiTenant', false !== ($config['multi_tenant'] ?? true));
 
         $container->getDefinition(PermissionDelegationService::class)
             ->setArgument('$tenantAdminRole', $tenantAdminRole)

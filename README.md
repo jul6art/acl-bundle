@@ -43,6 +43,17 @@ acl:
 
 `acl.enabled` is also exposed as a container parameter.
 
+> ⚠️ **`multi_tenant: false` in a single-tenant application, or nothing works.**
+>
+> Rule 3 of the decision refuses any `/api/` check whose tenant was not resolved. In a
+> multi-tenant application that is vital: a forgotten header would otherwise answer across tenants,
+> with a 200 indistinguishable from a correct response.
+>
+> In an application that has no tenants there is nothing to resolve — `TenantResolver` can only
+> ever answer `null` — so that same rule refuses **every** `/api/` permission check for anyone who
+> is not a super admin. The symptom is an empty datatable and a 403 in the console for an
+> administrator who does hold the permission, and nothing in a test suite points at it.
+
 Usage
 -----
 
@@ -117,6 +128,9 @@ service rather than breaking the container.
 acl:
     super_admin_role: ROLE_SUPER_ADMIN
     tenant_admin_role: ROLE_ORGANIZATION_ADMIN
+
+    # false in an application that has NO tenants. See the warning below.
+    multi_tenant: true
     tenant_header: '%api.tenant_header%'          # the same header your API documents
     tenant_request_attribute: _api_organization   # where your tenant listener puts the entity
     tenant_route_parameters: ['organization', 'organizationSlug', 'domain']

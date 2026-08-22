@@ -30,6 +30,7 @@ final class ConfigurationTest extends TestCase
         self::assertSame([
             'enabled' => true,
             'super_admin_role' => 'ROLE_SUPER_ADMIN',
+            'multi_tenant' => true,
             'tenant_admin_role' => 'ROLE_ORGANIZATION_ADMIN',
             'tenant_header' => 'X-TENANT',
             'tenant_request_attribute' => '_tenant',

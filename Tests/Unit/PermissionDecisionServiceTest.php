@@ -169,15 +169,78 @@ final class PermissionDecisionServiceTest extends TestCase
         self::assertFalse($service->isGranted(new TestUser(roles: [self::ADMIN]), 'cms:page:read'));
     }
 
+    // ── Applications sans locataires ─────────────────────────────────────────
+
+    /**
+     * ⚠️ Le défaut qui a motivé `multi_tenant`.
+     *
+     * En multi-locataire, une requête d'API dont le locataire n'est pas résolu est refusée — un
+     * repli implicite transformerait un en-tête oublié en collection inter-locataires. Dans une
+     * application qui n'a PAS de locataires, `TenantResolver` ne peut répondre que `null`, et cette
+     * même règle refuse alors toute vérification derrière `/api/` à quiconque n'est pas super-admin.
+     *
+     * Le symptôme est une datatable vide et un 403 en console pour un administrateur qui détient
+     * pourtant la permission, et rien dans une suite de tests ne le montre.
+     */
+    public function testAnApiRequestWithoutTenantIsRefusedInMultiTenantMode(): void
+    {
+        $service = $this->service(rolePermissions: ['cms:page:read']);
+
+        self::assertFalse($service->isGranted(
+            new TestUser(roles: ['ROLE_USER']),
+            'cms:page:read',
+            context: $this->context('cms:page:read', null, true),
+        ));
+    }
+
+    public function testTheSameRequestPassesInSingleTenantMode(): void
+    {
+        $service = $this->service(rolePermissions: ['cms:page:read'], multiTenant: false);
+
+        self::assertTrue($service->isGranted(
+            new TestUser(roles: ['ROLE_USER']),
+            'cms:page:read',
+            context: $this->context('cms:page:read', null, true),
+        ));
+    }
+
+    /**
+     * En mono-locataire, l'administrateur de locataire passe sans qu'on lui compare un locataire
+     * que personne ne peut résoudre. La clause de la règle 6 ne s'applique plus.
+     */
+    public function testTheTenantAdminPassesOnAnApiRequestInSingleTenantMode(): void
+    {
+        $service = $this->service(multiTenant: false);
+
+        self::assertTrue($service->isGranted(
+            new TestUser(roles: [self::ADMIN]),
+            'cms:page:read',
+            context: $this->context('cms:page:read', 'someone-else', true),
+        ));
+    }
+
+    /** Le défaut reste strict : une application multi-locataire ne change pas de comportement. */
+    public function testMultiTenantIsTheDefault(): void
+    {
+        $service = new PermissionDecisionService(self::ADMIN);
+
+        self::assertFalse($service->isGranted(
+            new TestUser(roles: [self::ADMIN]),
+            'cms:page:read',
+            context: $this->context('cms:page:read', null, true),
+        ));
+    }
+
     /**
      * @param array<string, bool> $overrides
      * @param list<string>        $rolePermissions
      */
-    private function service(array $overrides = [], array $rolePermissions = []): PermissionDecisionService
+    private function service(array $overrides = [], array $rolePermissions = [], bool $multiTenant = true): PermissionDecisionService
     {
         return new PermissionDecisionService(
             self::ADMIN,
             new AclPermissionReadService(new InMemoryPermissionSetProvider($overrides, $rolePermissions)),
+            $multiTenant,
         );
     }
 
