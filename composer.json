@@ -32,7 +32,7 @@
         "phpstan/phpstan-doctrine": "^2.0",
         "phpstan/phpstan-phpunit": "^2.0",
         "phpstan/phpstan-symfony": "^2.0",
-        "phpunit/phpunit": "^13.0",
+        "phpunit/phpunit": "^13.2",
         "rector/rector": "^2.0",
         "symfony/flex": "^2.4",
         "symfony/framework-bundle": "^7.4 || ^8.0",
