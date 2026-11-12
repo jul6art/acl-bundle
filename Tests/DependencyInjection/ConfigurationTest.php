@@ -37,7 +37,26 @@ final class ConfigurationTest extends TestCase
             'tenant_route_parameters' => ['organization', 'organizationSlug', 'domain'],
             'route_permissions' => [],
             'context_listener_priority' => -10,
+            // ADR-0001: off, so an application keeps its own storage until it turns this on.
+            'storage' => [
+                'enabled' => false,
+                'user_class' => null,
+                'role_permission_class' => null,
+                'user_permission_override_class' => null,
+                'catalog' => null,
+                'role_scope' => 'global',
+                'override_scope' => 'global',
+                'tenant_property' => 'organization',
+                'role_hierarchy' => false,
+            ],
         ], $this->process([]));
+    }
+
+    public function testAStorageScopeIsGlobalOrTenant(): void
+    {
+        $this->expectExceptionMessageIsOrContains('"organization"');
+
+        $this->process([['storage' => ['enabled' => true, 'user_class' => 'A', 'role_permission_class' => 'B', 'user_permission_override_class' => 'C', 'role_scope' => 'organization']]]);
     }
 
     public function testLaterConfigsOverrideEarlierOnes(): void

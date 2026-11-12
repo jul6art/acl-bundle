@@ -4,9 +4,15 @@ declare(strict_types=1);
 
 namespace Jul6Art\AclBundle\DependencyInjection;
 
+use Jul6Art\AclBundle\Command\SeedPermissionsCommand;
+use Jul6Art\AclBundle\Contract\AclUserInterface;
 use Jul6Art\AclBundle\Contract\FeatureCheckerInterface;
+use Jul6Art\AclBundle\Contract\PermissionCatalogInterface;
 use Jul6Art\AclBundle\Contract\PermissionSetProviderInterface;
 use Jul6Art\AclBundle\Contract\PermissionStoreInterface;
+use Jul6Art\AclBundle\Doctrine\DoctrinePermissionSetProvider;
+use Jul6Art\AclBundle\Doctrine\DoctrinePermissionStore;
+use Jul6Art\AclBundle\Doctrine\PermissionSeeder;
 use Jul6Art\AclBundle\Security\AclPermissionReadService;
 use Jul6Art\AclBundle\Security\FeatureAccessListener;
 use Jul6Art\AclBundle\Security\PermissionContextListener;
@@ -15,9 +21,12 @@ use Jul6Art\AclBundle\Security\PermissionDelegationService;
 use Jul6Art\AclBundle\Security\PermissionRouteMap;
 use Jul6Art\AclBundle\Security\TenantResolver;
 use Symfony\Component\Config\FileLocator;
+use Symfony\Component\Console\Command\Command;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
+use Symfony\Component\DependencyInjection\Extension\PrependExtensionInterface;
 use Symfony\Component\DependencyInjection\Loader\YamlFileLoader;
+use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\HttpKernel\KernelEvents;
 
 /**
@@ -41,7 +50,7 @@ use Symfony\Component\HttpKernel\KernelEvents;
  * runs before the other bundles have configured anything, so `$container->has()` at this point
  * always answers false.
  */
-class AclExtension extends Extension
+class AclExtension extends Extension implements PrependExtensionInterface
 {
     #[\Override]
     public function load(array $configs, ContainerBuilder $container): void
@@ -98,6 +107,100 @@ class AclExtension extends Extension
         // Utilisé par le pass de compilation pour savoir s'il doit retirer le service de lecture :
         // un `Definition` inspecté après coup ne dit pas ce que la configuration valait.
         $container->setParameter('acl.read_service_class', AclPermissionReadService::class);
+
+        $storage = $config['storage'] ?? null;
+        if (\is_array($storage) && true === ($storage['enabled'] ?? false)) {
+            $this->registerStorage($container, $storage);
+        }
+    }
+
+    /**
+     * Doctrine must see the mapped superclasses — the bundle's `Doctrine/` is no `Entity/` directory that
+     * auto-mapping finds — and resolve the override's account to the application's class. Prepended, so the
+     * application's own `doctrine` configuration keeps the last word.
+     */
+    #[\Override]
+    public function prepend(ContainerBuilder $container): void
+    {
+        if (!$container->hasExtension('doctrine')) {
+            return;
+        }
+
+        $userClass = null;
+        foreach ($container->getExtensionConfig($this->getAlias()) as $config) {
+            $storage = $config['storage'] ?? null;
+            if (\is_array($storage) && false !== ($storage['enabled'] ?? true) && \is_string($storage['user_class'] ?? null)) {
+                $userClass = $storage['user_class'];
+            }
+        }
+        if (null === $userClass) {
+            return;
+        }
+
+        $container->prependExtensionConfig('doctrine', ['orm' => [
+            'resolve_target_entities' => [AclUserInterface::class => $userClass],
+            'mappings' => [
+                'Jul6ArtAclStorage' => [
+                    'type' => 'attribute',
+                    'is_bundle' => false,
+                    'dir' => __DIR__.'/../Doctrine',
+                    'prefix' => 'Jul6Art\\AclBundle\\Doctrine',
+                ],
+            ],
+        ]]);
+    }
+
+    /**
+     * The store, the provider the engine reads, and — given a catalog — the seed and its command. The two
+     * contracts are aliased to them, which is what the compiler pass looks for.
+     *
+     * @param array<mixed> $storage
+     */
+    private function registerStorage(ContainerBuilder $container, array $storage): void
+    {
+        $roleClass = self::asString($storage['role_permission_class'] ?? null, '');
+
+        $container->register(DoctrinePermissionStore::class, DoctrinePermissionStore::class)
+            ->setArguments([
+                new Reference('doctrine'),
+                $roleClass,
+                self::asString($storage['user_permission_override_class'] ?? null, ''),
+                self::asString($storage['user_class'] ?? null, ''),
+                self::asString($storage['role_scope'] ?? null, DoctrinePermissionStore::SCOPE_GLOBAL),
+                self::asString($storage['override_scope'] ?? null, DoctrinePermissionStore::SCOPE_GLOBAL),
+                self::asString($storage['tenant_property'] ?? null, 'organization'),
+            ])
+            ->setPublic(true);
+        $container->setAlias(PermissionStoreInterface::class, DoctrinePermissionStore::class)->setPublic(true);
+
+        $container->register(DoctrinePermissionSetProvider::class, DoctrinePermissionSetProvider::class)
+            ->setArguments([
+                new Reference(DoctrinePermissionStore::class),
+                true === ($storage['role_hierarchy'] ?? false) ? new Reference('security.role_hierarchy') : null,
+            ])
+            ->setPublic(true);
+        $container->setAlias(PermissionSetProviderInterface::class, DoctrinePermissionSetProvider::class)->setPublic(true);
+
+        $catalog = $storage['catalog'] ?? null;
+        if (!\is_string($catalog) || '' === $catalog) {
+            return;
+        }
+
+        $container->setAlias(PermissionCatalogInterface::class, $catalog)->setPublic(true);
+        $container->register(PermissionSeeder::class, PermissionSeeder::class)
+            ->setArguments([
+                new Reference(DoctrinePermissionStore::class),
+                new Reference(PermissionCatalogInterface::class),
+                new Reference('doctrine'),
+                $roleClass,
+            ])
+            ->setPublic(true);
+
+        if (class_exists(Command::class)) {
+            $container->register(SeedPermissionsCommand::class, SeedPermissionsCommand::class)
+                ->setArguments([new Reference(PermissionSeeder::class)])
+                ->addTag('console.command');
+        }
     }
 
     /**

@@ -7,7 +7,7 @@ Symfony ACL bundle
 
 <p align="left">
     <a href="https://opensource.org/licenses/MIT" target="_blank"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
-    <img src="https://img.shields.io/static/v1?label=stable&message=v1.1.2&color=0ea5e9" alt="Version">
+    <img src="https://img.shields.io/static/v1?label=stable&message=v1.2.0&color=0ea5e9" alt="Version">
 </p>
 
 Symfony ACL bundle
@@ -84,7 +84,7 @@ class Organization implements AclTenantInterface
     public function getSlug(): ?string { return $this->slug; }
 }
 
-// Where permissions are stored — the one thing the bundle cannot provide.
+// Where permissions are stored — the bundle's Doctrine storage (below), or your own provider.
 final class DoctrinePermissionSetProvider implements PermissionSetProviderInterface
 {
     public function overridesFor(AclUserInterface $user): array
@@ -120,6 +120,53 @@ services:
 `PermissionStoreInterface` (six write methods) is needed only for delegation, and
 `FeatureCheckerInterface` only for `#[RequiresFeature]`. Each missing implementation removes its
 service rather than breaking the container.
+
+### Or let the bundle store them: `acl.storage` (1.2)
+
+The provider and the store above were the same Doctrine code in every application — so the bundle
+ships them (ADR-0001). Your application keeps what is **its schema**: two thin entities.
+
+```php
+#[ORM\Entity]
+#[ORM\Table(name: 'role_permission')]
+#[ORM\UniqueConstraint(name: 'uniq_role_permission', columns: ['role_code', 'permission'])]
+class RolePermission extends AbstractRolePermission      // role_code, permission, granted
+{
+    use IdTrait;
+}
+
+#[ORM\Entity]
+#[ORM\Table(name: 'user_permission_override')]
+#[ORM\UniqueConstraint(name: 'uniq_user_permission', columns: ['user_id', 'permission'])]
+class UserPermissionOverride extends AbstractUserPermissionOverride   // user_id, permission, granted
+{
+    use IdTrait;
+}
+```
+
+```yaml
+acl:
+    storage:
+        enabled: true
+        user_class: App\Entity\User
+        role_permission_class: App\Entity\RolePermission
+        user_permission_override_class: App\Entity\UserPermissionOverride
+        catalog: App\Security\PermissionCatalog   # your PermissionCatalogInterface: the seed's defaults
+        role_scope: global            # tenant: a tenant's row wins over the platform's, both ways
+        override_scope: global        # tenant: an override belongs to the account's current tenant
+        tenant_property: organization # the tenant association of your thin entities, when a scope is tenant
+        role_hierarchy: false         # true: the roles an account reaches grant too
+```
+
+- **No method flushes**: the caller owns the transaction, and saving a grid of fifty cells stays one.
+- **`acl:permissions:seed`** (alias `app:permissions:seed`, the name deployment hooks call) writes the
+  catalog's defaults **where nobody has decided yet**, and only there: a cell an administrator
+  unticked keeps its row at `false`, and replaying the seed at every deployment never reopens it.
+  `PermissionSeeder::seed()` does the same from your fixtures.
+- **A tenant's row is written even to refuse**: taking back at one tenant what the platform grants
+  needs a row at `false`, or the default would keep applying.
+- Off by default: an application keeps its own provider until it turns the key on — two providers
+  would compete for the engine.
 
 ### Step 2 — configure
 
@@ -252,10 +299,10 @@ is unnecessary.
 
 ### What stays in your application
 
-The catalogue — the list of permission codes, and each role's defaults. The bundle has no
-`PermissionCatalogInterface`, deliberately: nothing inside the engine reads a catalogue, and an
-interface with no consumer in the bundle is weight without a contract. Keep those tables where they
-can be reviewed next to the features they describe.
+The catalogue — the list of permission codes, and each role's defaults. Nothing inside the engine
+reads it; the storage's seed and the roles' grid do, through `PermissionCatalogInterface` (1.2), which
+your application implements once over those tables. Keep them where they can be reviewed next to
+the features they describe.
 
 Quality assurance
 -----------------
