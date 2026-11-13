@@ -131,3 +131,20 @@ s'écrit en amendement de cet ADR à l'ouverture de la phase 2b, après lecture 
   d'abord (cereezer, tradebot, wtg, devinthehood), puis devingame, cegeta, devinlive.
 - Le README d'acl-bundle cesse de dire que le stockage appartient à l'application : il appartient au
   bundle, son **schéma** (table, unicités, locataire) à l'application.
+- **1.2.1** (2026-11-13, trouvé en migrant cereezer) : `saveRoleGrid()` préchargeait les lignes d'une grille
+  de locataire, mais passait au niveau plateforme par `grantToRole()`/`revokeFromRole()`, une requête par
+  case — six cents pour six rôles et cent codes. Une lecture dans les deux portées ; le noyau de test compte
+  ses requêtes.
+
+## Bilan de la phase 2a (2026-11-13)
+
+- Sept applications et le squelette adoptent le stockage ; **schéma inchangé partout**
+  (`doctrine:schema:update --dump-sql` : rien à faire) ; leurs tests de permissions passent avant et après.
+- Dans Chrome, avant et après, à l'identique : la case décochée tient au rechargement et un compte du rôle
+  reçoit 403 (devingame, wtg, tradebot), la graine relancée sous `app:permissions:seed` laisse le refus
+  (devingame, devinthehood, tradebot, cegeta) ; cereezer : décocher chez Acme retire la ligne d'Acme (le
+  défaut de plateforme refuse déjà), la recocher la rétablit, la plateforme ne bouge pas ; devinlive : sa
+  grille et une dérogation par compte, posée puis retirée par son écran d'accès.
+- Restent à l'application, comme décidé : les entités minces, `PermissionCatalog`, les fixtures réduites à
+  la graine (cereezer y garde sa démonstration par locataire) ; devinlive garde son écran d'accès
+  (`AccessGrid`), qui lit désormais la base par l'`EntityManager`.
