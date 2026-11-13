@@ -210,3 +210,26 @@ part avec la copie.
   `PermissionDecisionService` laisse passer sur le chemin web après la grille, quoi qu'elle dise. Comportement
   antérieur au lot (l'ancien contrôleur de cereezer l'écrivait déjà) ; la référence de configuration, elle, dit
   « anything its tenant is not explicitly denied ». À trancher avec le porteur.
+
+## Le constat tranché : la règle 6 lit les refus (1.3.0, 2026-11-13, décidé par jul6art : « corrige ce trou »)
+
+- **Ce qui change** : l'administrateur de locataire est borné par ce que la grille refuse à SON rôle, dans son
+  locataire. Un refus est une ligne décidée à `false`, celle du locataire avant celle de la plateforme. Une
+  permission que personne n'a décidée passe toujours, pour qu'un nouveau code serve avant d'être semé. La
+  surcharge du compte (règle 4) et l'octroi d'un autre de ses rôles (règle 5) passent toujours avant.
+- **Seule la colonne du rôle d'administration compte.** La grille de plateforme garde ses cases décochées à
+  `false`. Si un refus fait à `ROLE_USER` bornait l'administrateur qui porte aussi ce rôle, chacune de ces
+  cases lui retirerait ce que son propre rôle n'a jamais refusé.
+- **Le contrat est optionnel** : `RoleRefusalProviderInterface::refusedToRoleFor()`, à côté de
+  `PermissionSetProviderInterface`. Le fournisseur du bundle l'implémente ; un fournisseur d'application
+  (superp, devinthecode) qui ne l'implémente pas garde l'ancienne portée. Coût : une lecture par compte et par
+  rôle et par requête, seulement quand une décision atteint la règle 6.
+- **Effet chez les consommateurs** : seul cereezer change (`role_scope: tenant`, `ROLE_ADMIN` dans la grille ;
+  le refus de `permission:read` posé chez Globex par ses fixtures prend effet). cegeta n'a pas de colonne pour
+  `ROLE_ORGANIZATION_ADMIN`, ni de ligne refusée pour ce rôle. Dans les autres applications, personne ne porte
+  `ROLE_TENANT_ADMIN`.
+- **Ce qui reste vrai** : une case que la graine n'a jamais écrite (chez cereezer, 17 codes de `ROLE_ADMIN` :
+  `organization:*`, `portal:*`, `contact-request:*`) s'affiche décochée, mais l'administrateur y passe. Les
+  routes réservées à la plateforme gardent leur contrôle `isSuperAdmin()` explicite.
+- **Nouveau risque** : un administrateur de locataire qui retire `permission:update` à son propre rôle perd
+  l'accès à sa grille. Seul un super-admin peut alors la lui rendre.
