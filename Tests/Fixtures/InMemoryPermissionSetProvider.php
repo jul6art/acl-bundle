@@ -6,6 +6,7 @@ namespace Jul6Art\AclBundle\Tests\Fixtures;
 
 use Jul6Art\AclBundle\Contract\AclUserInterface;
 use Jul6Art\AclBundle\Contract\PermissionSetProviderInterface;
+use Jul6Art\AclBundle\Contract\RoleRefusalProviderInterface;
 
 /**
  * Storage in an array, plus a call counter — the counter is the point.
@@ -13,19 +14,23 @@ use Jul6Art\AclBundle\Contract\PermissionSetProviderInterface;
  * `AclPermissionReadService` exists to turn N permission checks into one read. Asserting on the
  * answers proves nothing about that; asserting on how many times the provider was asked does.
  */
-final class InMemoryPermissionSetProvider implements PermissionSetProviderInterface
+final class InMemoryPermissionSetProvider implements PermissionSetProviderInterface, RoleRefusalProviderInterface
 {
     public int $overrideCalls = 0;
 
     public int $roleCalls = 0;
 
+    public int $refusalCalls = 0;
+
     /**
-     * @param array<string, bool> $overrides
-     * @param list<string>        $rolePermissions
+     * @param array<string, bool>         $overrides
+     * @param list<string>                $rolePermissions
+     * @param array<string, list<string>> $refusals        role → the codes explicitly refused to it
      */
     public function __construct(
         private array $overrides = [],
         private array $rolePermissions = [],
+        private array $refusals = [],
     ) {
     }
 
@@ -49,6 +54,17 @@ final class InMemoryPermissionSetProvider implements PermissionSetProviderInterf
         ++$this->roleCalls;
 
         return $this->rolePermissions;
+    }
+
+    /**
+     * @return list<string>
+     */
+    #[\Override]
+    public function refusedToRoleFor(string $role, AclUserInterface $user): array
+    {
+        ++$this->refusalCalls;
+
+        return $this->refusals[$role] ?? [];
     }
 
     public function setOverride(string $permission, bool $decision): void

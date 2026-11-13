@@ -21,8 +21,11 @@ use Jul6Art\AclBundle\Contract\AclUserInterface;
  *    tenants, and that leak reads exactly like a working endpoint.
  * 4. **A user override decides**, grant or deny, over everything a role grants.
  * 5. **A role grant passes.**
- * 6. **A tenant administrator passes** — but on an API request carrying a tenant, only for their
- *    own. That last clause is the difference between an administrator and a cross-tenant reader.
+ * 6. **A tenant administrator passes** — unless the grid explicitly refuses the permission to their
+ *    role, in their tenant; and on an API request carrying a tenant, only for their own. A permission
+ *    nobody decided still passes, so a new code works before it is seeded; one taken back from the
+ *    role's column does not, or the grid would show a refusal the engine ignores. The last clause is
+ *    the difference between an administrator and a cross-tenant reader.
  * 7. **Otherwise refused.** Absence of a rule is a refusal, never a pass.
  *
  * ## Single-tenant applications
@@ -100,6 +103,12 @@ readonly class PermissionDecisionService
         }
 
         if (\in_array($this->tenantAdminRole, $user->getRoles(), true)) {
+            // « Anything its tenant is not explicitly denied » : une case décochée dans la colonne du rôle,
+            // pour son locataire ou par la plateforme, refuse. Jamais décidée, elle laisse passer.
+            if (true === $this->permissions?->isRefusedToRole($user, $this->tenantAdminRole, $permission)) {
+                return false;
+            }
+
             if ($this->multiTenant && $context instanceof PermissionContext && $context->isApi && null !== $context->domain) {
                 return $context->domain === $user->getTenant()?->getSlug();
             }

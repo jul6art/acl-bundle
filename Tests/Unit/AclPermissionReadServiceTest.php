@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jul6Art\AclBundle\Tests\Unit;
 
+use Jul6Art\AclBundle\Contract\AclUserInterface;
+use Jul6Art\AclBundle\Contract\PermissionSetProviderInterface;
 use Jul6Art\AclBundle\Security\AclPermissionReadService;
 use Jul6Art\AclBundle\Tests\Fixtures\InMemoryPermissionSetProvider;
 use Jul6Art\AclBundle\Tests\Fixtures\TestUser;
@@ -105,5 +107,69 @@ final class AclPermissionReadServiceTest extends TestCase
         self::assertNull($service->resolveUserOverride($user, 'a:read'));
         self::assertFalse($service->isGrantedByRole($user, 'b:read'));
         self::assertSame(0, $provider->overrideCalls, 'Le stockage n\'a rien à dire d\'un utilisateur sans identité.');
+    }
+
+    // ── Les refus d'un rôle (la borne de l'administrateur de locataire) ──────
+
+    /**
+     * Lus à la demande seulement : une requête dont les rôles répondent à tout ne paie rien de plus. Puis une
+     * lecture par compte et par rôle, quel que soit le nombre de contrôles.
+     */
+    public function testARolesRefusalsAreReadOnceAndOnlyWhenAsked(): void
+    {
+        $provider = new InMemoryPermissionSetProvider(refusals: ['ROLE_ADMIN' => ['permission:read']]);
+        $service = new AclPermissionReadService($provider);
+        $user = new TestUser(id: 7);
+
+        $service->isGrantedByRole($user, 'permission:read');
+        self::assertSame(0, $provider->refusalCalls, 'Personne ne les a demandés.');
+
+        for ($i = 0; $i < 20; ++$i) {
+            self::assertTrue($service->isRefusedToRole($user, 'ROLE_ADMIN', 'permission:read'));
+            self::assertFalse($service->isRefusedToRole($user, 'ROLE_ADMIN', 'user:read'), 'Jamais décidée : pas refusée.');
+        }
+        self::assertFalse($service->isRefusedToRole($user, 'ROLE_USER', 'permission:read'), 'Le refus est celui d\'un rôle, pas du compte.');
+
+        self::assertSame(2, $provider->refusalCalls, 'Une lecture par rôle demandé.');
+    }
+
+    public function testFlushingAUserDropsItsRefusalsToo(): void
+    {
+        $provider = new InMemoryPermissionSetProvider(refusals: ['ROLE_ADMIN' => ['a:read']]);
+        $service = new AclPermissionReadService($provider);
+        $user = new TestUser(id: 7);
+
+        $service->isRefusedToRole($user, 'ROLE_ADMIN', 'a:read');
+        $service->flush($user);
+        $service->isRefusedToRole($user, 'ROLE_ADMIN', 'a:read');
+        $service->flush();
+        $service->isRefusedToRole($user, 'ROLE_ADMIN', 'a:read');
+
+        self::assertSame(3, $provider->refusalCalls);
+    }
+
+    /**
+     * Un fournisseur qui ne sait pas dire les refus (le contrat est optionnel) n'en a aucun : l'administrateur de
+     * locataire garde la portée qu'il avait. Un compte sans identité non plus.
+     */
+    public function testWithoutTheContractOrAnIdentityNothingIsRefused(): void
+    {
+        $bare = new class implements PermissionSetProviderInterface {
+            public function overridesFor(AclUserInterface $user): array
+            {
+                return [];
+            }
+
+            public function grantedByRolesFor(AclUserInterface $user): array
+            {
+                return [];
+            }
+        };
+
+        self::assertFalse(new AclPermissionReadService($bare)->isRefusedToRole(new TestUser(id: 7), 'ROLE_ADMIN', 'a:read'));
+
+        $provider = new InMemoryPermissionSetProvider(refusals: ['ROLE_ADMIN' => ['a:read']]);
+        self::assertFalse(new AclPermissionReadService($provider)->isRefusedToRole(new TestUser(id: null), 'ROLE_ADMIN', 'a:read'));
+        self::assertSame(0, $provider->refusalCalls);
     }
 }

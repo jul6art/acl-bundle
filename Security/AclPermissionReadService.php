@@ -6,6 +6,7 @@ namespace Jul6Art\AclBundle\Security;
 
 use Jul6Art\AclBundle\Contract\AclUserInterface;
 use Jul6Art\AclBundle\Contract\PermissionSetProviderInterface;
+use Jul6Art\AclBundle\Contract\RoleRefusalProviderInterface;
 
 /**
  * Reads a user's permissions once per request and answers every later check from memory.
@@ -27,6 +28,11 @@ use Jul6Art\AclBundle\Contract\PermissionSetProviderInterface;
  * A user override — grant *or* deny — beats what any role says. That is what makes "everyone in
  * this role, except this one person" expressible, and it is why an override of `false` is not the
  * same as an absent override: the first refuses, the second falls through to the roles.
+ *
+ * ## A role's refusals
+ *
+ * Read for the tenant administrator alone, and only when a decision reaches it (rule 6): a request whose checks
+ * are all answered by the roles costs nothing more. Then one read per account and role, kept like the rest.
  */
 final class AclPermissionReadService
 {
@@ -34,6 +40,11 @@ final class AclPermissionReadService
      * @var array<int, array{overrides: array<string, bool>, rolePermissions: array<string, true>}>
      */
     private array $setCache = [];
+
+    /**
+     * @var array<int, array<string, array<string, true>>> account → role → the codes refused to it
+     */
+    private array $refusalCache = [];
 
     public function __construct(
         private readonly PermissionSetProviderInterface $sets,
@@ -57,6 +68,22 @@ final class AclPermissionReadService
     }
 
     /**
+     * Whether this role was explicitly refused this permission, in the account's tenant — `false` when the
+     * provider cannot tell ({@see RoleRefusalProviderInterface} not implemented) or nobody decided it.
+     */
+    public function isRefusedToRole(AclUserInterface $user, string $role, string $permission): bool
+    {
+        $id = $user->getId();
+        if (null === $id || !$this->sets instanceof RoleRefusalProviderInterface) {
+            return false;
+        }
+
+        $this->refusalCache[$id][$role] ??= array_fill_keys($this->sets->refusedToRoleFor($role, $user), true);
+
+        return isset($this->refusalCache[$id][$role][$permission]);
+    }
+
+    /**
      * Drops the cached set for one user, or for all of them.
      *
      * Call it after granting or revoking a permission that must take effect **within the same
@@ -68,13 +95,14 @@ final class AclPermissionReadService
     {
         if (!$user instanceof AclUserInterface) {
             $this->setCache = [];
+            $this->refusalCache = [];
 
             return;
         }
 
         $id = $user->getId();
         if (null !== $id) {
-            unset($this->setCache[$id]);
+            unset($this->setCache[$id], $this->refusalCache[$id]);
         }
     }
 

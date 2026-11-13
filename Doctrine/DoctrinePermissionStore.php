@@ -141,6 +141,27 @@ final readonly class DoctrinePermissionStore implements PermissionStoreInterface
     }
 
     /**
+     * The permissions explicitly refused to a set of roles: a row decided at `false`, a tenant's over the
+     * platform's. A permission without a row is not refused — nobody decided it. One query, like
+     * {@see grantedForRoles()}.
+     *
+     * @param list<string> $roles
+     *
+     * @return list<string>
+     */
+    public function refusedForRoles(array $roles, ?AclTenantInterface $tenant = null): array
+    {
+        $refused = [];
+        foreach ($this->decisions($roles, $tenant) as $decision) {
+            if (!$decision['granted']) {
+                $refused[] = $decision['permission'];
+            }
+        }
+
+        return array_values(array_unique($refused));
+    }
+
+    /**
      * Role → the permissions it holds, for the grid.
      *
      * @param list<string> $roles

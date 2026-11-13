@@ -7,7 +7,7 @@ Symfony ACL bundle
 
 <p align="left">
     <a href="https://opensource.org/licenses/MIT" target="_blank"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
-    <img src="https://img.shields.io/static/v1?label=stable&message=v1.2.1&color=0ea5e9" alt="Version">
+    <img src="https://img.shields.io/static/v1?label=stable&message=v1.3.0&color=0ea5e9" alt="Version">
 </p>
 
 Symfony ACL bundle
@@ -121,6 +121,11 @@ services:
 `FeatureCheckerInterface` only for `#[RequiresFeature]`. Each missing implementation removes its
 service rather than breaking the container.
 
+`RoleRefusalProviderInterface` (1.3) is optional, on the same provider: `refusedToRoleFor($role, $user)`
+lists what a role was **explicitly** refused in the account's tenant — a row kept at `false`. The
+engine reads it for the tenant administrator alone (rule 6 below), once per request, and only when a
+decision gets that far. A provider without it keeps the tenant administrator's former reach.
+
 ### Or let the bundle store them: `acl.storage` (1.2)
 
 The provider and the store above were the same Doctrine code in every application — so the bundle
@@ -165,6 +170,8 @@ acl:
   `PermissionSeeder::seed()` does the same from your fixtures.
 - **A tenant's row is written even to refuse**: taking back at one tenant what the platform grants
   needs a row at `false`, or the default would keep applying.
+- **The bundle's provider reads the refusals too** (1.3): a cell unticked in the tenant
+  administrator's column binds them, whether the platform or their tenant unticked it.
 - Off by default: an application keeps its own provider until it turns the key on — two providers
   would compete for the engine.
 
@@ -225,8 +232,14 @@ In order, and the order is the security model:
 | 3 | **An API request with no resolved tenant is refused** | See below |
 | 4 | A user override decides, grant or deny | Makes "everyone in this role except this person" expressible |
 | 5 | A role grant passes | |
-| 6 | A tenant admin passes — on the API, only for their own tenant | The line between an admin and a cross-tenant reader |
+| 6 | A tenant admin passes — unless their role is explicitly refused the permission in their tenant; on the API, only for their own tenant | A new code works before it is seeded; a cell the grid unticked is not a lie; the line between an admin and a cross-tenant reader |
 | 7 | Otherwise refused | Absence of a rule is never a pass |
+
+> ⚠️ **Rule 6 reads the grid's refusals since 1.3.** A permission nobody decided for the tenant
+> administrator's role still passes; one taken back from that role — a row at `false`, the
+> tenant's over the platform's — refuses, as the grid shows it. Before 1.3 the administrator passed
+> anyway, and an unticked cell in their column said "refused" for nothing. Only that role's column
+> counts: a refusal written for `ROLE_USER` does not bound an administrator who also holds it.
 
 > ⚠️ **Rule 3 is the one to understand.** An API request whose tenant could not be resolved is
 > *refused*, not scoped to the caller's own tenant. Falling back would turn a forgotten header into

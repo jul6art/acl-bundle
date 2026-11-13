@@ -13,6 +13,8 @@ use Jul6Art\AclBundle\Contract\PermissionStoreInterface;
 use Jul6Art\AclBundle\Doctrine\DoctrinePermissionSetProvider;
 use Jul6Art\AclBundle\Doctrine\DoctrinePermissionStore;
 use Jul6Art\AclBundle\Doctrine\PermissionSeeder;
+use Jul6Art\AclBundle\Security\AclPermissionReadService;
+use Jul6Art\AclBundle\Security\PermissionDecisionService;
 use Jul6Art\AclBundle\Tests\Fixtures\Entity\Account;
 use Jul6Art\AclBundle\Tests\Fixtures\Entity\RolePermission;
 use Jul6Art\AclBundle\Tests\Fixtures\Entity\Tenant;
@@ -37,6 +39,8 @@ use Symfony\Component\Security\Core\Role\RoleHierarchy;
 #[CoversClass(DoctrinePermissionSetProvider::class)]
 #[CoversClass(PermissionSeeder::class)]
 #[CoversClass(SeedPermissionsCommand::class)]
+#[CoversClass(PermissionDecisionService::class)]
+#[CoversClass(AclPermissionReadService::class)]
 final class StorageTest extends AbstractFunctionalTestCase
 {
     private EntityManagerInterface $entityManager;
@@ -135,6 +139,47 @@ final class StorageTest extends AbstractFunctionalTestCase
         $provider = $container->get(PermissionSetProviderInterface::class);
         self::assertInstanceOf(PermissionSetProviderInterface::class, $provider);
         self::assertSame(['user.read'], $provider->grantedByRolesFor($this->account(['ROLE_USER'], $acme)), 'The engine reads the account\'s tenant.');
+    }
+
+    /**
+     * The tenant administrator's bound (1.3): what the grid refuses their role — the platform's refusal, or their
+     * tenant's — refuses them; what nobody decided still passes; a tenant that grants back is followed.
+     */
+    public function testWhatTheGridRefusesTheTenantAdminsRoleBindsThem(): void
+    {
+        $container = $this->storage(['role_permission_class' => TenantRolePermission::class, 'role_scope' => 'tenant']);
+        $this->seeder($container)->seed();
+        $store = $this->store($container);
+        [$acme, $globex] = [$this->tenant('acme'), $this->tenant('globex')];
+        $codes = ['user.read', 'user.update', 'invoice.read', 'invoice.cancel'];
+
+        // The platform takes invoice.read back from ROLE_ADMIN; Globex grants it back; Acme takes user.update.
+        $store->saveRoleGrid(['ROLE_ADMIN'], $codes, ['ROLE_ADMIN' => ['user.read', 'user.update']], null);
+        $store->saveRoleGrid(['ROLE_ADMIN'], $codes, ['ROLE_ADMIN' => ['user.read']], $acme);
+        $store->saveRoleGrid(['ROLE_ADMIN'], $codes, ['ROLE_ADMIN' => ['user.read', 'user.update', 'invoice.read']], $globex);
+        $this->entityManager->flush();
+
+        self::assertSame(['invoice.read'], $store->refusedForRoles(['ROLE_ADMIN']));
+        self::assertEqualsCanonicalizing(['invoice.read', 'user.update'], $store->refusedForRoles(['ROLE_ADMIN'], $acme));
+        self::assertSame([], $store->refusedForRoles(['ROLE_ADMIN'], $globex), 'Globex\'s own row wins over the platform\'s refusal.');
+
+        $provider = $container->get(PermissionSetProviderInterface::class);
+        self::assertInstanceOf(DoctrinePermissionSetProvider::class, $provider);
+        $engine = new PermissionDecisionService('ROLE_ADMIN', new AclPermissionReadService($provider));
+        $atAcme = $this->account(['ROLE_ADMIN'], $acme);
+        $atGlobex = $this->account(['ROLE_ADMIN'], $globex);
+
+        self::assertFalse($engine->isGranted($atAcme, 'invoice.read'), 'Refused by the platform, followed by Acme.');
+        self::assertFalse($engine->isGranted($atAcme, 'user.update'), 'Refused by Acme.');
+        self::assertTrue($engine->isGranted($atAcme, 'user.read'));
+        self::assertTrue($engine->isGranted($atAcme, 'report.export'), 'Never decided: the tenant administrator passes.');
+        self::assertTrue($engine->isGranted($atGlobex, 'invoice.read'), 'Granted back by Globex.');
+        self::assertTrue($engine->isGranted($atGlobex, 'user.update'));
+
+        QueryCounter::$queries = 0;
+        $engine->isGranted($atAcme, 'user.update');
+        $engine->isGranted($atAcme, 'report.export');
+        self::assertSame(0, QueryCounter::$queries, 'The refusals are read once per account and role.');
     }
 
     public function testATenantsGridWritesOnlyWhatDiffersFromThePlatform(): void

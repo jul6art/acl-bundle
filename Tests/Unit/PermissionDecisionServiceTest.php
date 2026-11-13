@@ -139,6 +139,61 @@ final class PermissionDecisionServiceTest extends TestCase
         ));
     }
 
+    // ── La borne de l'administrateur de locataire : les refus de sa colonne ────
+
+    /**
+     * Le trou de cereezer (2026-11-13) : la grille montrait la case décochée, le moteur laissait passer
+     * l'administrateur quand même. « Granted anything its tenant is not explicitly denied » — un refus écrit
+     * dans la colonne de son rôle le borne.
+     */
+    public function testATenantAdminIsBoundByWhatTheGridRefusesTheirRole(): void
+    {
+        $service = $this->service(refusals: [self::ADMIN => ['permission:read']]);
+        $admin = new TestUser(roles: [self::ADMIN], tenant: new TestTenant(1, 'globex'));
+
+        self::assertFalse($service->isGranted($admin, 'permission:read'));
+        self::assertTrue($service->isGranted($admin, 'un:code:jamais:decide'), 'Jamais décidé : il passe toujours.');
+    }
+
+    public function testTheRefusalHoldsOnTheApiOfTheirOwnTenantToo(): void
+    {
+        $service = $this->service(refusals: [self::ADMIN => ['permission:read']]);
+        $admin = new TestUser(roles: [self::ADMIN], tenant: new TestTenant(1, 'globex'));
+
+        self::assertFalse($service->isGranted($admin, 'permission:read', context: $this->context('permission:read', domain: 'globex', isApi: true)));
+        self::assertTrue($service->isGranted($admin, 'user:read', context: $this->context('user:read', domain: 'globex', isApi: true)));
+    }
+
+    /**
+     * Seule la colonne du rôle d'administration compte : un refus écrit pour `ROLE_USER`, que l'administrateur
+     * porte aussi, ne le borne pas — la grille de plateforme garde ses cases décochées à `false`, et chacune
+     * retirerait alors à l'administrateur ce que son propre rôle n'a jamais refusé.
+     */
+    public function testARefusalToAnotherRoleTheAdminHoldsDoesNotBindThem(): void
+    {
+        $service = $this->service(refusals: ['ROLE_USER' => ['user:read']]);
+
+        self::assertTrue($service->isGranted(new TestUser(roles: [self::ADMIN, 'ROLE_USER']), 'user:read'));
+    }
+
+    /** L'ordre des règles tient : la surcharge du compte (4) et l'octroi d'un autre de ses rôles (5) passent avant. */
+    public function testAnOverrideOrAnotherRolesGrantStillWins(): void
+    {
+        $refused = [self::ADMIN => ['invoice:read']];
+        $admin = new TestUser(roles: [self::ADMIN, 'ROLE_ACCOUNTANT']);
+
+        self::assertTrue($this->service(overrides: ['invoice:read' => true], refusals: $refused)->isGranted($admin, 'invoice:read'));
+        self::assertTrue($this->service(rolePermissions: ['invoice:read'], refusals: $refused)->isGranted($admin, 'invoice:read'));
+    }
+
+    /** Un refus fait à la colonne d'administration ne touche que l'administrateur, jamais le super-admin. */
+    public function testASuperAdminIsNeverBoundByTheGrid(): void
+    {
+        $service = $this->service(refusals: [self::ADMIN => ['permission:read']]);
+
+        self::assertTrue($service->isGranted(new TestUser(roles: [self::ADMIN], superAdmin: true), 'permission:read'));
+    }
+
     public function testAnOrdinaryUserIsRefusedWhatNothingGrants(): void
     {
         self::assertFalse($this->service()->isGranted(new TestUser(roles: ['ROLE_USER']), 'cms:page:read'));
@@ -232,14 +287,15 @@ final class PermissionDecisionServiceTest extends TestCase
     }
 
     /**
-     * @param array<string, bool> $overrides
-     * @param list<string>        $rolePermissions
+     * @param array<string, bool>         $overrides
+     * @param list<string>                $rolePermissions
+     * @param array<string, list<string>> $refusals
      */
-    private function service(array $overrides = [], array $rolePermissions = [], bool $multiTenant = true): PermissionDecisionService
+    private function service(array $overrides = [], array $rolePermissions = [], bool $multiTenant = true, array $refusals = []): PermissionDecisionService
     {
         return new PermissionDecisionService(
             self::ADMIN,
-            new AclPermissionReadService(new InMemoryPermissionSetProvider($overrides, $rolePermissions)),
+            new AclPermissionReadService(new InMemoryPermissionSetProvider($overrides, $rolePermissions, $refusals)),
             $multiTenant,
         );
     }
