@@ -148,3 +148,33 @@ s'écrit en amendement de cet ADR à l'ouverture de la phase 2b, après lecture 
 - Restent à l'application, comme décidé : les entités minces, `PermissionCatalog`, les fixtures réduites à
   la graine (cereezer y garde sa démonstration par locataire) ; devinlive garde son écran d'accès
   (`AccessGrid`), qui lit désormais la base par l'`EntityManager`.
+
+## Amendement — la phase 2b : l'écran (2026-11-13, validé par jul6art : « enchaîne sur la phase 2b, je valide »)
+
+Lecture des gabarits : la référence (devingame, wtg, squelette), devinthehood (colonne super-admin
+verrouillée, libellés, largeurs fixes, barre collante et contrôleur Stimulus des changements en attente),
+tradebot (légende, marque des écarts au défaut, cases non modifiables désactivées, bouton « Rétablir »),
+cegeta et cereezer (défilement horizontal mesuré à 360 px, bandeau de l'organisation chez cereezer). Huit
+gabarits, cinq rendus, chacun corrigé à l'écran pour une raison écrite.
+
+**Décision** : comme au lot 4 (le sélecteur de langue), **le gabarit reste à l'application** ; admin-bundle
+1.40 livre le **contrôleur** — la seule copie mesurée (`RolePermissionController`, 10 copies, 9 variantes) —
+et le contrat de ce qu'il passe au gabarit : `roles`, `grouped`, `granted` (rôle → codes accordés dans la
+portée), `defaults`, `superAdminOnly`, `changeable` (rôle → code → modifiable), `organization` (la portée,
+ou `null`). Configuration `admin.role_permissions` :
+
+- `roles` : les colonnes (cereezer six, wtg cinq, cegeta `ROLE_USER`) — lu aussi par les tests de vocabulaire
+  (`%admin.role_permissions.roles%`) ;
+- `read`, `update` : les attributs de sécurité de l'écran (les `PermissionCodes::PERMISSION_*` du produit) ;
+  `access` : un attribut de plus, exigé partout (cegeta : `ROLE_SUPER_ADMIN`, la plateforme seule) ;
+- `scope` : `platform` (une grille), ou `tenant` — celle de l'organisation de l'acteur, le super-admin
+  éditant la plateforme ; l'enregistrement n'écrit que les écarts au défaut (cereezer) ;
+- `escalation_guard` (faux par défaut : rien ne change ailleurs) : une case ne change que si l'acteur
+  détient son code ; forcer l'accord d'une case verrouillée est un 403 (tradebot) ;
+- `reset` : la route « Rétablir les défauts » (tradebot), qui ne touche que les cases modifiables ;
+- `template`, `index_route`.
+
+Mêmes jeton (`role_permissions`), mêmes messages flash (`permission.flash.saved`, `permission.flash.reset`,
+`flash.invalid_csrf`), mêmes noms de routes : les gabarits et les tests des applications ne changent pas, sauf
+pour lire les rôles depuis la configuration. Le voter de tradebot (`RolePermissionVoter`, `PermissionChange`)
+part avec la copie.
