@@ -20,6 +20,7 @@ use Jul6Art\AclBundle\Tests\Fixtures\Entity\TenantRolePermission;
 use Jul6Art\AclBundle\Tests\Fixtures\Entity\TenantUserPermissionOverride;
 use Jul6Art\AclBundle\Tests\Fixtures\Entity\UserPermissionOverride;
 use Jul6Art\AclBundle\Tests\Fixtures\Storage\Catalog;
+use Jul6Art\AclBundle\Tests\Fixtures\Storage\QueryCounter;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Symfony\Component\Console\Command\LazyCommand;
 use Symfony\Component\Console\CommandLoader\CommandLoaderInterface;
@@ -162,6 +163,25 @@ final class StorageTest extends AbstractFunctionalTestCase
         self::assertSame([], $store->grantedForRoles(['ROLE_USER'], $acme), 'Acme follows the platform\'s refusal.');
     }
 
+    public function testAGridIsSavedInOneReadWhateverItsSize(): void
+    {
+        foreach ([[[], null], [['role_permission_class' => TenantRolePermission::class, 'role_scope' => 'tenant'], 'acme']] as [$storage, $slug]) {
+            $container = $this->storage($storage);
+            $this->seeder($container)->seed();
+            $store = $this->store($container);
+            $tenant = null === $slug ? null : $this->tenant($slug);
+            $codes = ['user.read', 'user.update', 'invoice.read', 'invoice.cancel'];
+
+            QueryCounter::$queries = 0;
+            $store->saveRoleGrid(['ROLE_ADMIN', 'ROLE_USER'], $codes, ['ROLE_ADMIN' => ['user.read', 'invoice.cancel'], 'ROLE_USER' => []], $tenant);
+            self::assertSame(1, QueryCounter::$queries, 'One read, then the unit of work: never a query per cell.');
+            $this->entityManager->flush();
+
+            self::assertEqualsCanonicalizing(['user.read', 'invoice.cancel'], $store->grantedForRoles(['ROLE_ADMIN'], $tenant));
+            self::assertSame([], $store->grantedForRoles(['ROLE_USER'], $tenant));
+        }
+    }
+
     public function testAnOverrideBelongsToTheAccountsCurrentTenant(): void
     {
         $container = $this->storage(['user_permission_override_class' => TenantUserPermissionOverride::class, 'override_scope' => 'tenant']);
@@ -195,7 +215,7 @@ final class StorageTest extends AbstractFunctionalTestCase
 
         self::assertEqualsCanonicalizing(['user.read', 'user.update'], $flat->grantedByRolesFor($admin));
         $reached = $hierarchy->grantedByRolesFor($admin);
-        \sort($reached);
+        sort($reached);
         self::assertSame(['invoice.read', 'user.read', 'user.update'], $reached, 'Refused to ROLE_ADMIN, held by ROLE_USER it reaches.');
     }
 

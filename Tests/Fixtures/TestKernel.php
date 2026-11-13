@@ -16,6 +16,7 @@ use Jul6Art\AclBundle\Security\PermissionDelegationService;
 use Jul6Art\AclBundle\Security\PermissionRouteMap;
 use Jul6Art\AclBundle\Security\PermissionVoter;
 use Jul6Art\AclBundle\Security\TenantResolver;
+use Jul6Art\AclBundle\Tests\Fixtures\Storage\QueryCounter;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\SecurityBundle\SecurityBundle;
 use Symfony\Component\Config\Loader\LoaderInterface;
@@ -181,6 +182,7 @@ final class TestKernel extends Kernel
 
         if ($this->withOrm) {
             $this->configureDoctrine($container);
+            $container->register(QueryCounter::class, QueryCounter::class)->addTag('doctrine.middleware');
         }
 
         $container->loadFromExtension('acl', $this->bundleConfig);

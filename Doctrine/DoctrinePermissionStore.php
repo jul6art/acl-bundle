@@ -226,6 +226,9 @@ final readonly class DoctrinePermissionStore implements PermissionStoreInterface
      * everyone), each cell is granted or taken back. In a tenant, only what differs from the platform's default
      * is written, and a tenant row that now equals the default goes: the tenant follows the platform again.
      *
+     * One read for the whole grid, whatever its size: the rows of the roles in scope are loaded once, and each
+     * cell is decided against them — a grid of six roles and a hundred codes is not six hundred queries.
+     *
      * @param list<string>                $roles
      * @param list<string>                $codes
      * @param array<string, list<string>> $checked
@@ -235,28 +238,34 @@ final readonly class DoctrinePermissionStore implements PermissionStoreInterface
         $tenant = $this->roleTenant($tenant);
         $platform = [];
         $own = [];
-        if ($tenant instanceof AclTenantInterface) {
-            foreach ($this->rowsInScope($roles, $tenant) as $row) {
-                $key = $row->getRoleCode().'|'.$row->getPermission();
-                if ($this->tenantOf($row) instanceof AclTenantInterface) {
-                    $own[$key] = $row;
-                } else {
-                    $platform[$key] = $row;
-                }
+        foreach ($this->rowsInScope($roles, $tenant) as $row) {
+            $key = $row->getRoleCode().'|'.$row->getPermission();
+            if ($tenant instanceof AclTenantInterface && $this->tenantOf($row) instanceof AclTenantInterface) {
+                $own[$key] = $row;
+            } else {
+                $platform[$key] = $row;
             }
         }
 
         foreach ($roles as $role) {
             foreach ($codes as $code) {
+                $key = $role.'|'.$code;
                 $wanted = in_array($code, $checked[$role] ?? [], true);
+                $default = $platform[$key] ?? null;
+
                 if (!$tenant instanceof AclTenantInterface) {
-                    $wanted ? $this->grantToRole($role, $code, null) : $this->revokeFromRole($role, $code, null);
+                    // The row decides, both ways; without one, a refusal is already what applies.
+                    if ($default instanceof AbstractRolePermission) {
+                        if ($default->isGranted() !== $wanted) {
+                            $default->setGranted($wanted);
+                        }
+                    } elseif ($wanted) {
+                        $this->persistRole($role, $code, null, true);
+                    }
 
                     continue;
                 }
 
-                $key = $role.'|'.$code;
-                $default = $platform[$key] ?? null;
                 $row = $own[$key] ?? null;
                 if ($wanted === ($default?->isGranted() ?? false)) {
                     if ($row instanceof AbstractRolePermission) {
@@ -313,16 +322,24 @@ final readonly class DoctrinePermissionStore implements PermissionStoreInterface
     }
 
     /**
+     * The rows of the roles in a scope: the platform's, and the tenant's when there is one.
+     *
      * @param list<string> $roles
      *
      * @return list<AbstractRolePermission>
      */
-    private function rowsInScope(array $roles, AclTenantInterface $tenant): array
+    private function rowsInScope(array $roles, ?AclTenantInterface $tenant): array
     {
+        if ([] === $roles) {
+            return [];
+        }
+
         $builder = $this->repository($this->rolePermissionClass)->createQueryBuilder('rp')
             ->andWhere('rp.roleCode IN (:roles)')
             ->setParameter('roles', $roles);
-        $this->inTenant($builder, 'rp', $tenant, withPlatform: true);
+        if (self::SCOPE_TENANT === $this->roleScope) {
+            $this->inTenant($builder, 'rp', $tenant, withPlatform: true);
+        }
 
         /** @var list<AbstractRolePermission> $rows */
         $rows = $builder->getQuery()->getResult();
