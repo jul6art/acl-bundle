@@ -178,3 +178,35 @@ Mêmes jeton (`role_permissions`), mêmes messages flash (`permission.flash.save
 `flash.invalid_csrf`), mêmes noms de routes : les gabarits et les tests des applications ne changent pas, sauf
 pour lire les rôles depuis la configuration. Le voter de tradebot (`RolePermissionVoter`, `PermissionChange`)
 part avec la copie.
+
+## Bilan de la phase 2b (2026-11-13)
+
+- admin-bundle 1.40.0 livre `RolePermissionController` ; six applications le routent et suppriment leur
+  copie : devingame, wtg, devinthehood (plateforme), tradebot (`escalation_guard`, `reset` ; son voter
+  `RolePermissionVoter` et `PermissionChange` partent avec la copie), cegeta (`access: ROLE_SUPER_ADMIN`),
+  cereezer (`scope: tenant`) ; le squelette aussi (`admin_role_permissions.yaml` du mode avec comptes).
+  devinlive et superp n'ont pas cette grille : ils suivent seulement la version. **Schéma inchangé partout.**
+- **1.41.0**, trouvée par la porte de tradebot : l'écran se garde par configuration, sans `#[IsGranted]`, et le
+  test qui vérifie que chaque entrée du menu dit la permission de son écran n'avait rien à lire. Comme
+  `admin.deadlines.access` pour les échéances, `admin.role_permissions.read`, `.update` et `.access` disent
+  désormais ce que le contrôleur exige, et le contrôleur est branché dessus.
+- **Une clé de plus** : le `FlashKeyTest` des applications lit aussi les contrôleurs d'admin-bundle ; celui de
+  la grille peut poser `permission.flash.reset`, donc chaque catalogue la porte, dans toutes ses langues
+  (cegeta : cinq), même sans la route « Rétablir ».
+- **La carte des workflows ne documente pas un contrôleur de `vendor/`** : les pages de la grille sortent de
+  `docs/workflows/` partout. Chez devingame, le guide « Les comptes et les permissions » (tiré de ces pages)
+  perd sa section « Les permissions », comme il n'en a jamais eu pour l'apparence ou les échéances ; ses deux
+  scénarios orphelins partent avec elle.
+- Dans Chrome, après : devingame, wtg — la case décochée tient au rechargement et un compte du rôle reçoit 403,
+  puis la case revient ; tradebot — un manager qui détient `permission:update` ne modifie que les 72 cases
+  dont il détient le code, forcer une case verrouillée est un 403 et ne change rien, « Rétablir » rend les 47
+  cases du défaut, et sans `permission:update` les 92 cases sont désactivées et l'envoi est un 403 (revu en
+  1.41.0) ; devinthehood et cegeta — la grille égale la base, une case posée puis retirée revient à l'état de
+  départ ; cereezer — décocher chez Acme retire sa ligne d'élargissement, la recocher la rétablit, la grille
+  de plateforme (196 cases) ne voit ni l'élargissement d'Acme ni le refus de Globex, un compte sans
+  `permission:read` reçoit 403.
+- **Constat, hors du lot** (cereezer) : le refus de `permission:read` posé chez Globex pour `ROLE_ADMIN` par
+  les fixtures ne borne pas son administrateur — `ROLE_ADMIN` y est `tenant_admin_role`, que
+  `PermissionDecisionService` laisse passer sur le chemin web après la grille, quoi qu'elle dise. Comportement
+  antérieur au lot (l'ancien contrôleur de cereezer l'écrivait déjà) ; la référence de configuration, elle, dit
+  « anything its tenant is not explicitly denied ». À trancher avec le porteur.
